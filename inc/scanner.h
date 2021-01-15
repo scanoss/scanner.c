@@ -25,9 +25,10 @@
 #ifndef __SCANNER_H
 #define __SCANNER_H
 
+#include <stdio.h>
 #include <stdbool.h>
 
-#define VERSION "1.1.7"
+#define VERSION "1.1.8"
 #define MAX_HEADER_LEN 1024 * 1024 * 1024 * 10
 #define MAX_FILE_SIZE (1024 * 1024 * 4)
 #define MIN_FILE_SIZE 128
