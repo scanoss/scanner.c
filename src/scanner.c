@@ -275,7 +275,9 @@ int api_curl_post(char *host, char *port, char *session, char *version, char *fo
         /* always cleanup */
         curl_easy_cleanup(curl);
     }
+
     curl_global_cleanup();
+    free(http_request);
     return 0;
 }
 
