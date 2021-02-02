@@ -38,7 +38,7 @@
 #include "log.h"
 
 /*SCANNER PRIVATE PROPERTIES*/
-#define API_HOST_DEFAULT "osskb.org"
+#define API_HOST_DEFAULT "osskb.org/api"
 #define API_PORT_DEFAULT "443"
 #define API_SESSION_DEFAULT "\0"
 
@@ -201,88 +201,7 @@ static bool scanner_file_proc(char *root, char *path, FILE *output)
     return state;
 }
 
-int api_curl_post(char *host, char *port, char *session, char *version, char *format, char *wfp, FILE *output)
-{
-
-    char body_template[] = "--------------------------scanoss_wfp_scan\r\n"
-                           "Content-Disposition: form-data; name=\"format\"\r\n\r\n%s\r\n"
-                           "--------------------------scanoss_wfp_scan--\r\n"
-                           "Content-Disposition: form-data; name=\"file\"; filename=\"scan.wfp\"\r\n"
-                           "Content-Type: application/octet-stream\r\n"
-                           "\r\n%s\r\n"
-                           "--------------------------scanoss_wfp_scan--\r\n\r\n";
-
-    char user_version[64];
-    char user_session[64];
-    long m_port = strtol(port, NULL, 10);
-
-    sprintf(user_session, "X-session: %s", session);
-    sprintf(user_version, "User-Agent: SCANOSS_scanner.c/%s", version);
-
-    log_debug("Version:%s", user_version);
-
-    char *http_request = calloc(strlen(wfp) + strlen(body_template) + 100, 1);
-    sprintf(http_request, body_template, format, wfp);
-    log_trace(http_request);
-
-    free(wfp);
-
-    CURL *curl;
-    CURLcode res;
-
-    /* In windows, this will init the winsock stuff */
-    res = curl_global_init(CURL_GLOBAL_DEFAULT);
-    /* Check for errors */
-    if (res != CURLE_OK)
-    {
-        fprintf(stderr, "curl_global_init() failed: %s\n",
-                curl_easy_strerror(res));
-        return 1;
-    }
-
-    /* get a curl handle */
-    curl = curl_easy_init();
-    if (curl)
-    {
-        /* First set the URL that is about to receive our POST. */
-        curl_easy_setopt(curl, CURLOPT_URL, "osskb.org/api/scan/direct");
-        curl_easy_setopt(curl, CURLOPT_PORT, m_port);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, http_request);
-
-        if (log_level_is_enabled(LOG_TRACE))
-            curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-
-        curl_easy_setopt(curl, CURLOPT_DEFAULT_PROTOCOL, "https");
-
-        struct curl_slist *chunk = NULL;
-        chunk = curl_slist_append(chunk, "Connection: close");
-        chunk = curl_slist_append(chunk, user_version);
-        chunk = curl_slist_append(chunk, user_session);
-        chunk = curl_slist_append(chunk, "Content-Type: multipart/form-data; boundary=------------------------scanoss_wfp_scan");
-        chunk = curl_slist_append(chunk, "Expect:");
-        chunk = curl_slist_append(chunk, "Accept: */*");
-
-        res = curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
-
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, output);
-
-        /* Perform the request, res will get the return code */
-        res = curl_easy_perform(curl);
-        /* Check for errors */
-        if (res != CURLE_OK)
-            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-
-        /* always cleanup */
-        curl_easy_cleanup(curl);
-        curl_slist_free_all(chunk);
-    }
-
-    curl_global_cleanup();
-    free(http_request);
-    return 0;
-}
-
-static bool api_request(FILE *output)
+static bool scan_request(FILE *output)
 {
 
     long buffer_size = 0;
@@ -291,7 +210,7 @@ static bool api_request(FILE *output)
     bool state = true;
     if (*wfp_buffer)
     {
-        api_curl_post(API_host, API_port, API_session, VERSION, format, wfp_buffer, output);
+        curl_request(API_REQ_POST,wfp_buffer,output);
         state = false;
     }
 
@@ -347,6 +266,105 @@ static bool scanner_dir_proc(char *root, char *path, FILE *output)
 }
 
 /********* PUBLIC FUNTIONS DEFINITION ************/
+
+int curl_request(int api_req, char* data, FILE *output)
+{
+    char body_template[] = "--------------------------scanoss_wfp_scan\r\n"
+                           "Content-Disposition: form-data; name=\"format\"\r\n\r\n%s\r\n"
+                           "--------------------------scanoss_wfp_scan--\r\n"
+                           "Content-Disposition: form-data; name=\"file\"; filename=\"scan.wfp\"\r\n"
+                           "Content-Type: application/octet-stream\r\n"
+                           "\r\n%s\r\n"
+                           "--------------------------scanoss_wfp_scan--\r\n\r\n";
+
+    char *http_request = NULL;
+    
+    char *m_host;
+    char *user_version;
+    char *user_session;
+    long m_port = strtol(API_port, NULL, 10);
+    
+    asprintf(&m_host, "%s/scan/direct", API_host);
+    asprintf(&user_session, "X-session: %s", API_session);
+    asprintf(&user_version, "User-Agent: SCANOSS_scanner.c/%s", VERSION);
+
+    if (api_req == API_REQ_POST)
+    {
+        asprintf(&m_host, "%s/scan/direct", API_host);
+        asprintf(&http_request, body_template, format, data);
+        log_trace(http_request);
+        free(data);
+    }
+    else
+    {
+        asprintf(&m_host,"%s/file_contents/%s",API_host,data);
+    }
+    
+    CURL *curl;
+    CURLcode res;
+
+    /* In windows, this will init the winsock stuff */
+    res = curl_global_init(CURL_GLOBAL_DEFAULT);
+    /* Check for errors */
+    if (res != CURLE_OK)
+    {
+        fprintf(stderr, "curl_global_init() failed: %s\n",
+                curl_easy_strerror(res));
+        return 1;
+    }
+
+    /* get a curl handle */
+    curl = curl_easy_init();
+    if (curl)
+    {
+        /* First set the URL that is about to receive our POST. */
+        curl_easy_setopt(curl, CURLOPT_URL, m_host);
+        curl_easy_setopt(curl, CURLOPT_PORT, m_port);
+        if (api_req == API_REQ_POST)
+        {
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, http_request);
+        }
+
+        if (log_level_is_enabled(LOG_TRACE))
+            curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+
+        curl_easy_setopt(curl, CURLOPT_DEFAULT_PROTOCOL, "https");
+
+        struct curl_slist *chunk = NULL;
+        chunk = curl_slist_append(chunk, "Connection: close");
+        chunk = curl_slist_append(chunk, user_version);
+        chunk = curl_slist_append(chunk, user_session);
+        chunk = curl_slist_append(chunk, "Content-Type: multipart/form-data; boundary=------------------------scanoss_wfp_scan");
+        chunk = curl_slist_append(chunk, "Expect:");
+        chunk = curl_slist_append(chunk, "Accept: */*");
+
+        res = curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, output);
+
+        /* Perform the request, res will get the return code */
+        res = curl_easy_perform(curl);
+        /* Check for errors */
+        if (res != CURLE_OK)
+            log_error("curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+
+        /* always cleanup */
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(chunk);
+    }
+
+    curl_global_cleanup();
+    
+    free(m_host);
+    free(user_session);
+    free(user_version);
+
+    if (http_request)
+       free(http_request);
+    
+    return 0;
+
+}
 
 void scanner_set_format(char *form)
 {
@@ -416,7 +434,7 @@ bool scanner_recursive_scan(char *path, FILE *output)
         log_error("\"%s\" is not a file\n", path);
     }
 
-    api_request(output);
+    scan_request(output);
 
     if (output)
         fclose(output);
@@ -439,6 +457,28 @@ bool scanner_scan(char *host, char *port, char *session, char *format, char *pat
     scanner_set_port(port);
     scanner_set_session(session);
     scanner_set_format(format);
-
     return scanner_recursive_scan(path, output);
+}
+
+int scanner_get_file_contents(char *host, char *port, char *session, char * hash, char *file)
+{
+    if (!file)
+    {
+        log_fatal("Cannot download contents without output file");
+    }
+   
+    FILE *output;
+
+    output = fopen(file, "w+");
+    log_debug("File open: %s", file);
+
+    scanner_set_host(host);
+    scanner_set_port(port);
+    scanner_set_session(session);
+
+    int err_code = curl_request(API_REQ_GET,hash,output);
+
+    fclose(output);
+    
+    return err_code;
 }

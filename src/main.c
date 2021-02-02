@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
     int param = 0;
     FILE * output = stdout;
     /* Command parser */
-    while ((param = getopt (argc, argv, "H:p:f:o:l:hdt")) != -1)
+    while ((param = getopt (argc, argv, "F:H:p:f:o:l:hdt")) != -1)
         switch (param)
         {
             case 'H':
@@ -54,6 +54,9 @@ int main(int argc, char *argv[])
                 break;
             case 't':
                 scanner_set_log_level(0);
+                break;
+            case 'F':
+                exit(curl_request(API_REQ_GET,optarg,output));
                 break;
             case 'h':
             default:
