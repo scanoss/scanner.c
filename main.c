@@ -19,8 +19,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-#define _GNU_SOURCE
-
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h> 
@@ -32,9 +30,7 @@
 int main(int argc, char *argv[])
 {
     int param = 0;
-    char * output = NULL;
-    bool print_output = true;
-
+    FILE * output = stdout;
     /* Command parser */
     while ((param = getopt (argc, argv, "F:H:p:f:o:l:hdt")) != -1)
         switch (param)
@@ -49,9 +45,7 @@ int main(int argc, char *argv[])
                 scanner_set_format(optarg);
                 break;
             case 'o':
-                asprintf(&output,"%s",optarg);
-                scanner_set_output(output);
-                print_output = false;
+                output = fopen(optarg,"w+");
                 break;
             case 'l':
                 scanner_set_log_file(optarg);
@@ -62,7 +56,7 @@ int main(int argc, char *argv[])
                 scanner_set_log_level(0);
                 break;
             case 'F':
-                exit(scanner_umz(optarg));
+                exit(curl_request(API_REQ_GET,optarg,output));
                 break;
             case 'h':
             default:
@@ -71,7 +65,6 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "Option\t\t Meaning\n");
                 fprintf(stderr, "-h\t\t Show this help\n");
                 fprintf(stderr, "-f<format>\t Output format, could be: plain (default), spdx, spdx_xml or cyclonedx.\n");
-                fprintf(stderr, "-F<md5>\t UMZ a MD5 hash\n");
                 fprintf(stderr, "-o<file_name>\t Save the scan results in the specified file\n");
                 fprintf(stderr, "-l<file_name>\t Set logs filename\n");
                 fprintf(stderr, "-d\t\t Enable debug messages\n");
@@ -83,11 +76,9 @@ int main(int argc, char *argv[])
     
        
     char *path = argv[optind];
-   
-    scanner_recursive_scan(path);
     
-    if (print_output)
-        scanner_print_output();
-	
-    return EXIT_SUCCESS;
+    scanner_recursive_scan(path, output);
+
+    
+	return EXIT_SUCCESS;
 }

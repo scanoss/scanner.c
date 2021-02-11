@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#define VERSION "1.2.0"
+#define VERSION "1.2.1"
 #define MAX_HEADER_LEN 1024 * 1024 * 1024 * 10
 #define MAX_FILE_SIZE (1024 * 1024 * 4)
 #define MIN_FILE_SIZE 128
@@ -46,9 +46,11 @@ void scanner_set_format(char * form);
 void scanner_set_host(char * host);
 void scanner_set_port(char * port);
 void scanner_set_session(char *session);
+void scanner_set_output(char * f);
+int scanner_print_output(void);
 void scanner_set_log_file(char *log);
-bool scanner_recursive_scan(char * path, FILE * output);
-int curl_request(int api_req, char* data, FILE *output);
+bool scanner_recursive_scan(char * path);
+bool scanner_umz(char * md5);
 bool scanner_scan(char * host, char * port, char * session, char * format, char * path, char * file);
 int scanner_get_file_contents(char *host, char *port, char *session, char * hash, char *file);
 #endif
