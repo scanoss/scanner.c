@@ -31,7 +31,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <curl/curl.h>
-
+#include <sys/time.h>
+#include <math.h>
 #include "scanner.h"
 #include "blacklist_ext.h"
 #include "winnowing.h"
@@ -69,8 +70,9 @@ static unsigned int proc_files = 0;
 static char *output_path = NULL;
 FILE *output;
 
-char component_last[MAX_COMPONENT_SIZE] = "NULL";
+static char component_last[MAX_COMPONENT_SIZE] = "NULL";
 
+static scanner_status_t scanner;
 /* Returns a hexadecimal representation of the first "len" bytes in "bin" */
 static char *bin_to_hex(uint8_t *bin, uint32_t len)
 {
@@ -101,11 +103,21 @@ static char *read_file(char *path, long *length)
     return src;
 }
 
+
+static long millis()
+{
+    struct timespec _t;
+    clock_gettime(CLOCK_REALTIME, &_t);
+    return _t.tv_sec*1000 + lround(_t.tv_nsec/1.0e6);
+}
+
 static void wfp_capture(char *path, char *wfp_buffer)
 {
     /* Skip unwanted extensions */
     long length = 0;
     char *src = read_file(path, &length);
+
+    scanner.state = SCANNER_STATE_WFP_CALC; //update scanner state
 
     /* Skip if file is under threshold or if content is not wanted*/
     if (length < MIN_FILE_SIZE || unwanted_header(src))
@@ -118,8 +130,6 @@ static void wfp_capture(char *path, char *wfp_buffer)
     uint8_t bin_md5[16] = "\0";
     MD5((uint8_t *)src, length, bin_md5);
     char *hex_md5 = bin_to_hex(bin_md5, 16);
-
-    //char *file_name = path + strlen(root);
 
     /* Save file information to buffer */
     sprintf(wfp_buffer + strlen(wfp_buffer), "file=%s,%lu,%s\n", hex_md5, length, path);
@@ -150,7 +160,8 @@ static void wfp_capture(char *path, char *wfp_buffer)
                 sprintf(wfp_buffer + strlen(wfp_buffer), ",%08x", hashes[i]);
         }
         strcat(wfp_buffer, "\n");
-
+        scanner.wfp_files++; //update scanner proc. files
+        fprintf(stderr,".");
         free(hashes);
         free(lines);
     }
@@ -271,6 +282,8 @@ void json_correct(FILE *f)
     }
     else
         return;
+
+    scanner.state = SCANNER_STATE_FORMATING;
     
     size_t needle_len = strlen(needle);
     size_t repl_len = strlen(replacement);   
@@ -297,7 +310,6 @@ void json_correct(FILE *f)
         tmp = p + needle_len;
     }
 
-   log_debug("overwriting");
     output=freopen(NULL,"w",output);
     fputs(buffer,output);
 
@@ -315,7 +327,7 @@ static bool scan_request_by_chunks()
     
     int files_count = 0;
     
-    long buffer_size = 0;
+    long buffer_size = 0; //size of wfp file
     char *wfp_buffer = read_file(WFP_SCAN_FILE_NAME, &buffer_size);
     wfp_buffer[buffer_size] = 0;
     
@@ -324,6 +336,7 @@ static bool scan_request_by_chunks()
     
     char post_response_buffer[START_FIND_COMP_FROM_END+1];
     int post_response_pos = 0;
+    long chunk_start_time = 0;
 
     /*Patch for json join of no-plain formats*/
     if(!strstr(format,"plain"))
@@ -331,9 +344,13 @@ static bool scan_request_by_chunks()
         files_chunk_size = MAX_FILES_CHUNK;
         log_debug("Avoid chuck proc for %s format: %u",format,files_chunk_size);
     }
-    
+    scanner.state = SCANNER_STATE_ANALIZING;
+    log_info("Scanning, it could take some time, please be patient");
+    //walk over wfp buffer search for file key
+    scanner.total_response_time = millis();
     while(last_file - wfp_buffer < buffer_size)
     {
+        chunk_start_time = millis();
         last_file = strstr(last_file,file_key);
         if (last_file)
         {
@@ -344,12 +361,13 @@ static bool scan_request_by_chunks()
         {
             if (last_file == NULL)
                 last_file = &wfp_buffer[buffer_size];
-
+            //exact a new chunk from wfp file
             char *chunk_buffer = calloc(last_file - last_chunk + 1, 1);
             strncpy(chunk_buffer,last_chunk,last_file - last_chunk);
+            scanner.scanned_files += files_count; //update proc. files
             files_count = 0;
             last_chunk = last_file;
-            
+            //define the component context, find the last component in the output file.
             post_response_pos = ftell(output);
             
             memset(post_response_buffer,0,sizeof(post_response_buffer));
@@ -362,23 +380,28 @@ static bool scan_request_by_chunks()
             {
                 fseek(output,-1*START_FIND_COMP_FROM_END,SEEK_END);
             }
-            
+            //go back in the output file and find the last component
             fread(post_response_buffer,1,START_FIND_COMP_FROM_END,output);
             get_last_component(post_response_buffer,component_last);
 
-            log_debug(component_last);
+            log_trace("Last found component: %s", component_last);
             
             fseek(output,0L,SEEK_END);
+            //get the result from the last chunk - It will be append to the output file
             curl_request(API_REQ_POST,chunk_buffer,output);
             free(chunk_buffer);
-            state = false;   
+            state = false;
+            scanner.last_chunk_response_time = millis() - chunk_start_time; 
+            log_debug("Chunk proc. end, %u processed files in %ld ms", scanner.scanned_files,millis() - scanner.total_response_time);
+            fprintf(stderr,"\r             \r Processing: %ld%%",lround((scanner.scanned_files*100/scanner.wfp_files)));  
         }
         else
         {
             last_file += strlen(file_key);
         }
     }
-    
+    scanner.total_response_time = millis() - scanner.total_response_time;
+    log_info("Scan finish, %u processed files in %ld ms", scanner.scanned_files, scanner.total_response_time);  
     json_correct(output);
      
     return state;
@@ -598,9 +621,18 @@ void scanner_set_output(char * f)
 bool scanner_recursive_scan(char *path)
 {
     bool state = true;
-    log_debug("Scan start");
+    log_info("Scan start - WFP Calculation");
     proc_files = 0;
-    
+
+    scanner.state = SCANNER_STATE_INIT;
+    scanner.wfp_files = 0;
+    scanner.scanned_files = 0;
+    scanner.wfp_total_time = millis();    
+    scanner.last_chunk_response_time = 0;
+    scanner.total_response_time = 0;
+
+
+
     //check if exist the output file
     if (!output)
         scanner_set_output(NULL);
@@ -625,9 +657,11 @@ bool scanner_recursive_scan(char *path)
     }
     else
     {
+        scanner.state = SCANNER_STATE_ERROR;
         log_error("\"%s\" is not a file\n", path);
     }
-
+    scanner.wfp_total_time = millis() - scanner.wfp_total_time;
+    log_info("WFP calculation end, %u processed files in %ld ms", scanner.wfp_files, scanner.wfp_total_time);
     scan_request_by_chunks();
 
     if (output)
@@ -673,6 +707,10 @@ int scanner_get_file_contents(char *host, char *port, char *session, char * hash
     free(output_path);
 
     return err_code;
+}
+scanner_status_t scanner_get_status(void)
+{
+    return scanner;
 }
 
 bool scanner_umz(char * md5)

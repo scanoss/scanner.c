@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#define VERSION "1.2.1"
+#define VERSION "1.2.2"
 #define MAX_HEADER_LEN 1024 * 1024 * 1024 * 10
 #define MAX_FILE_SIZE (1024 * 1024 * 4)
 #define MIN_FILE_SIZE 128
@@ -38,6 +38,25 @@ enum
     API_REQ_GET,
     API_REQ_POST
 };
+
+typedef enum
+{
+    SCANNER_STATE_INIT = 0,
+    SCANNER_STATE_WFP_CALC,
+    SCANNER_STATE_ANALIZING,
+    SCANNER_STATE_FORMATING,
+    SCANNER_STATE_ERROR
+} scanner_state_t;
+
+typedef struct scanner_status_t
+{
+    unsigned int wfp_files;
+    unsigned int scanned_files;
+    long wfp_total_time;
+    long last_chunk_response_time;
+    long total_response_time;
+    scanner_state_t state;
+} scanner_status_t;
 
 void scanner_set_log_level(int level);
 void scanner_set_verbose(bool in);
@@ -53,4 +72,5 @@ bool scanner_recursive_scan(char * path);
 bool scanner_umz(char * md5);
 bool scanner_scan(char * host, char * port, char * session, char * format, char * path, char * file);
 int scanner_get_file_contents(char *host, char *port, char *session, char * hash, char *file);
+scanner_status_t scanner_get_status(void);
 #endif
