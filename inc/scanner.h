@@ -33,6 +33,9 @@
 #define MAX_FILE_SIZE (1024 * 1024 * 4)
 #define MIN_FILE_SIZE 128
 
+#define SCAN_STATUS_MAX_SIZE 512
+
+
 enum 
 {
     API_REQ_GET,
@@ -41,7 +44,8 @@ enum
 
 typedef enum
 {
-    SCANNER_STATE_INIT = 0,
+    SCANNER_STATE_OK = 0,
+    SCANNER_STATE_INIT,
     SCANNER_STATE_WFP_CALC,
     SCANNER_STATE_ANALIZING,
     SCANNER_STATE_FORMATING,
@@ -55,7 +59,8 @@ typedef struct scanner_status_t
     long wfp_total_time;
     long last_chunk_response_time;
     long total_response_time;
-    scanner_state_t state;
+    char message[SCAN_STATUS_MAX_SIZE];
+    scanner_state_t state;    
 } scanner_status_t;
 
 void scanner_set_log_level(int level);

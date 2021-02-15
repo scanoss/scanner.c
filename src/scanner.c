@@ -403,7 +403,7 @@ static bool scan_request_by_chunks()
     scanner.total_response_time = millis() - scanner.total_response_time;
     log_info("Scan finish, %u processed files in %ld ms", scanner.scanned_files, scanner.total_response_time);  
     json_correct(output);
-     
+    scanner.state = SCANNER_STATE_OK;
     return state;
 
 }
@@ -630,8 +630,6 @@ bool scanner_recursive_scan(char *path)
     scanner.wfp_total_time = millis();    
     scanner.last_chunk_response_time = 0;
     scanner.total_response_time = 0;
-
-
 
     //check if exist the output file
     if (!output)
