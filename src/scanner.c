@@ -203,7 +203,7 @@ static bool scanner_file_proc(char *path, FILE *output)
 
     if (strstr(EXCLUDED_EXTENSIONS, f_extension))
     {
-        log_debug("Excluded extension: %s", ext);
+        log_trace("Excluded extension: %s", ext);
         return true; //avoid filtered extensions
     }
 
@@ -221,7 +221,7 @@ static bool scanner_file_proc(char *path, FILE *output)
     }
     else
     {
-        log_debug("No wfp: %s", path);
+        log_trace("No wfp: %s", path);
     }
 
     free(wfp_buffer);
@@ -442,7 +442,7 @@ static bool scanner_dir_proc(char *path, FILE *output)
             sprintf(f_dir, "%s,", entry->d_name);
             if (strstr(EXCLUDED_DIR, f_dir))
             {
-                log_debug("Excluded Directory: %s", entry->d_name);
+                log_trace("Excluded Directory: %s", entry->d_name);
                 continue;
             }
             scanner_dir_proc(temp, output); //If its a valid directory, then process it
