@@ -54,6 +54,7 @@ typedef enum
 
 typedef struct scanner_status_t
 {
+    unsigned int id;
     unsigned int wfp_files;
     unsigned int scanned_files;
     long wfp_total_time;
@@ -75,7 +76,7 @@ int scanner_print_output(void);
 void scanner_set_log_file(char *log);
 bool scanner_recursive_scan(char * path);
 bool scanner_umz(char * md5);
-bool scanner_scan(char * host, char * port, char * session, char * format, char * path, char * file);
+int scanner_scan(char * host, char * port, char * session, char * format, char * path, char * file, scanner_status_t * scanner_status);
 int scanner_get_file_contents(char *host, char *port, char *session, char * hash, char *file);
-scanner_status_t scanner_get_status(void);
+scanner_status_t * scanner_get_status(void);
 #endif
