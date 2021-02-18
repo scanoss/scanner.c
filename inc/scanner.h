@@ -52,9 +52,19 @@ typedef enum
     SCANNER_STATE_ERROR
 } scanner_state_t;
 
+#define MAX_COMPONENT_SIZE 128
 typedef struct scanner_status_t
 {
     unsigned int id;
+    char API_host[32];
+    char API_port[5];
+    char API_session[33];
+    char format[16];
+    char component_last[MAX_COMPONENT_SIZE];
+    char *output_path;
+    char *wfp_path;
+    FILE *output;
+    unsigned int files_chunk_size;
     unsigned int wfp_files;
     unsigned int scanned_files;
     long wfp_total_time;
@@ -64,19 +74,25 @@ typedef struct scanner_status_t
     scanner_state_t state;    
 } scanner_status_t;
 
+#define API_HOST_DEFAULT "osskb.org/api"
+#define API_PORT_DEFAULT "443"
+#define API_SESSION_DEFAULT "\0"
+#define DEFAULT_FILES_CHUNK 100
+
+#define __SCANNER_STATUS_INIT {.API_host = API_HOST_DEFAULT, .API_port = API_PORT_DEFAULT, .API_session = API_SESSION_DEFAULT, .format = "plain", .files_chunk_size = DEFAULT_FILES_CHUNK}
+
 void scanner_set_log_level(int level);
 void scanner_set_verbose(bool in);
 void scanner_set_buffer_size(unsigned int size);
-void scanner_set_format(char * form);
-void scanner_set_host(char * host);
-void scanner_set_port(char * port);
-void scanner_set_session(char *session);
-void scanner_set_output(char * f);
-int scanner_print_output(void);
+void scanner_set_format(scanner_status_t *s, char * form);
+void scanner_set_host(scanner_status_t *s, char * host);
+void scanner_set_port(scanner_status_t *s, char * port);
+void scanner_set_session(scanner_status_t *s, char *session);
+void scanner_set_output(scanner_status_t *s, char * f);
+int scanner_print_output(scanner_status_t *scanner);
 void scanner_set_log_file(char *log);
-bool scanner_recursive_scan(char * path);
-bool scanner_umz(char * md5);
+bool scanner_recursive_scan(scanner_status_t *scanner, char * path);
+bool scanner_umz(scanner_status_t *scanner, char * md5);
 int scanner_scan(char * host, char * port, char * session, char * format, char * path, char * file, scanner_status_t * scanner_status);
-int scanner_get_file_contents(char *host, char *port, char *session, char * hash, char *file);
-scanner_status_t * scanner_get_status(void);
+int scanner_get_file_contents(scanner_status_t *scanner, char *host, char *port, char *session, char * hash, char *file);
 #endif

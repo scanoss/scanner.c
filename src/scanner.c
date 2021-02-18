@@ -37,15 +37,11 @@
 #include "blacklist_ext.h"
 #include "winnowing.h"
 #include "log.h"
-
+#include <pthread.h>
 /*SCANNER PRIVATE PROPERTIES*/
-#define API_HOST_DEFAULT "osskb.org/api"
-#define API_PORT_DEFAULT "443"
-#define API_SESSION_DEFAULT "\0"
 
-#define MAX_COMPONENT_SIZE 128
+
 #define MAX_FILES_CHUNK (1<<31)
-#define DEFAULT_FILES_CHUNK 100
 
 #define DEFAULT_WFP_SCAN_FILE_NAME "scan.wfp"
 #define DEFAULT_RESULT_NAME "scanner_output.txt"
@@ -56,24 +52,10 @@ const char EXCLUDED_EXTENSIONS[] = ".png, .html, .xml, .svg, .yaml, .yml, .txt, 
                                    ".tiff, .bmp, .DS_Store, .eot, .otf, .ttf, .woff, .rgb, .conf, .whl, .o, .ico, .wfp,";
 
 
-static int curl_request(int api_req, char* data, FILE *output);
-
-static char API_host[32] = API_HOST_DEFAULT;
-static char API_port[5] = API_PORT_DEFAULT;
-static char API_session[33] = API_SESSION_DEFAULT;
-
-static unsigned int files_chunk_size = DEFAULT_FILES_CHUNK;
-
-static char format[16] = "plain";
-static unsigned int proc_files = 0;
-
-static char *output_path = NULL;
-static char *wfp_path = NULL;
-static FILE *output;
+static int curl_request(int api_req, char* data,scanner_status_t *s);
 
 static char component_last[MAX_COMPONENT_SIZE] = "NULL";
 
-static scanner_status_t * scanner;
 /* Returns a hexadecimal representation of the first "len" bytes in "bin" */
 static char *bin_to_hex(uint8_t *bin, uint32_t len)
 {
@@ -112,7 +94,7 @@ static long millis()
     return _t.tv_sec*1000 + lround(_t.tv_nsec/1.0e6);
 }
 
-static void wfp_capture(char *path, char *wfp_buffer)
+static void wfp_capture(scanner_status_t *scanner, char *path, char *wfp_buffer)
 {
     /* Skip unwanted extensions */
     long length = 0;
@@ -188,7 +170,7 @@ static bool scanner_is_file(char *path)
 }
 
 /* Scan a file */
-static bool scanner_file_proc(char *path, FILE *output)
+static bool scanner_file_proc(scanner_status_t *s,char *path)
 {
     bool state = true;
     char *wfp_buffer;
@@ -211,10 +193,10 @@ static bool scanner_file_proc(char *path, FILE *output)
 
     *wfp_buffer = 0;
 
-    wfp_capture(path, wfp_buffer);
+    wfp_capture(s,path, wfp_buffer);
     if (*wfp_buffer)
     {
-        FILE *wfp_f = fopen(wfp_path, "a+");
+        FILE *wfp_f = fopen(s->wfp_path, "a+");
         fprintf(wfp_f, "%s", wfp_buffer);
         fclose(wfp_f);
         state = false;
@@ -258,16 +240,16 @@ static bool get_last_component(char * buffer, char * component)
     return state;
 }
 
-void json_correct(FILE *f)
+void json_correct(scanner_status_t *s)
 {
     size_t file_length = 0;
     
-    fseek(f, 0, SEEK_END);
-    file_length = ftell(f);
+    fseek(s->output, 0, SEEK_END);
+    file_length = ftell(s->output);
     char * target = calloc(file_length + 1, 1);
     
-    fseek(f, 0, SEEK_SET);
-    fread(target, 1, file_length, f);
+    fseek(s->output, 0, SEEK_SET);
+    fread(target, 1, file_length, s->output);
     
     char buffer[file_length];
     char *insert_point = &buffer[0];
@@ -276,7 +258,7 @@ void json_correct(FILE *f)
     char * needle;
     char * replacement;
 
-   if (strstr(format,"plain")) //|| strstr(format,"cyclonedx"))
+   if (strstr(s->format,"plain")) //|| strstr(format,"cyclonedx"))
     {
         asprintf(&needle,"}\n\r\n{");
         asprintf(&replacement,",");
@@ -284,7 +266,7 @@ void json_correct(FILE *f)
     else
         return;
 
-    scanner->state = SCANNER_STATE_FORMATING;
+    s->state = SCANNER_STATE_FORMATING;
     
     size_t needle_len = strlen(needle);
     size_t repl_len = strlen(replacement);   
@@ -310,16 +292,16 @@ void json_correct(FILE *f)
         // adjust pointers, move on
         tmp = p + needle_len;
     }
-    fclose(output);
-    output=fopen(output_path,"w+");
-    fputs(buffer,output);
+    fclose(s->output);
+    s->output=fopen(s->output_path,"w+");
+    fputs(buffer,s->output);
 
     free(target);
     free(needle);
     free(replacement);
 }
 
-static bool scan_request_by_chunks()
+static bool scan_request_by_chunks(scanner_status_t *s)
 {
 #define START_FIND_COMP_FROM_END 1000
 
@@ -329,7 +311,7 @@ static bool scan_request_by_chunks()
     int files_count = 0;
     
     long buffer_size = 0; //size of wfp file
-    char *wfp_buffer = read_file(wfp_path, &buffer_size);
+    char *wfp_buffer = read_file(s->wfp_path, &buffer_size);
     wfp_buffer[buffer_size] = 0;
     
     char * last_file = wfp_buffer;
@@ -340,15 +322,15 @@ static bool scan_request_by_chunks()
     long chunk_start_time = 0;
 
     /*Patch for json join of no-plain formats*/
-    if(!strstr(format,"plain"))
+    if(!strstr(s->format,"plain"))
     {
-        files_chunk_size = MAX_FILES_CHUNK;
-        log_debug("Avoid chuck proc for %s format: %u",format,files_chunk_size);
+        s->files_chunk_size = MAX_FILES_CHUNK;
+        log_debug("Avoid chuck proc for %s format: %u",s->format,s->files_chunk_size);
     }
-    scanner->state = SCANNER_STATE_ANALIZING;
-    log_info("ID: %u - Scanning, it could take some time, please be patient",scanner->id);
+    s->state = SCANNER_STATE_ANALIZING;
+    log_info("ID: %u - Scanning, it could take some time, please be patient",s->id);
     //walk over wfp buffer search for file key
-    scanner->total_response_time = millis();
+    s->total_response_time = millis();
     while(last_file - wfp_buffer < buffer_size)
     {      
         chunk_start_time = millis();
@@ -358,58 +340,58 @@ static bool scan_request_by_chunks()
             files_count++;
         }
 
-        if (files_count % files_chunk_size == 0|| (last_file == NULL))
+        if (files_count % s->files_chunk_size == 0|| (last_file == NULL))
         {
             if (last_file == NULL)
                 last_file = &wfp_buffer[buffer_size];
             //exact a new chunk from wfp file
             char *chunk_buffer = calloc(last_file - last_chunk + 1, 1);
             strncpy(chunk_buffer,last_chunk,last_file - last_chunk);
-            scanner->scanned_files = files_count; //update proc. files
+            s->scanned_files = files_count; //update proc. files
             last_chunk = last_file;
             //define the component context, find the last component in the output file.
-            post_response_pos = ftell(output);
+            post_response_pos = ftell(s->output);
             
             memset(post_response_buffer,0,sizeof(post_response_buffer));
             
             if (post_response_pos < START_FIND_COMP_FROM_END)
             {
-                fseek(output,0L,SEEK_SET);
+                fseek(s->output,0L,SEEK_SET);
             }
             else
             {
-                fseek(output,-1*START_FIND_COMP_FROM_END,SEEK_END);
+                fseek(s->output,-1*START_FIND_COMP_FROM_END,SEEK_END);
             }
             //go back in the output file and find the last component
-            fread(post_response_buffer,1,START_FIND_COMP_FROM_END,output);
+            fread(post_response_buffer,1,START_FIND_COMP_FROM_END,s->output);
             get_last_component(post_response_buffer,component_last);
 
             log_trace("Last found component: %s", component_last);
             
-            fseek(output,0L,SEEK_END);
+            fseek(s->output,0L,SEEK_END);
             //get the result from the last chunk - It will be append to the output file
-            curl_request(API_REQ_POST,chunk_buffer,output);
+            curl_request(API_REQ_POST,chunk_buffer,s);
             free(chunk_buffer);
             state = false;
-            scanner->last_chunk_response_time = millis() - chunk_start_time; 
-            log_debug("Chunk proc. end, %u processed files in %ld ms", scanner->scanned_files,millis() - scanner->total_response_time);
-            fprintf(stderr,"\r             \r ID: %u - Processing: %u%%",scanner->id,((scanner->scanned_files*100/scanner->wfp_files)));  
+            s->last_chunk_response_time = millis() - chunk_start_time; 
+            log_debug("Chunk proc. end, %u processed files in %ld ms", s->scanned_files,millis() - s->total_response_time);
+            fprintf(stderr,"\r             \r ID: %u - Processing: %u%%",s->id,((s->scanned_files*100/s->wfp_files)));  
         }
 
         last_file += strlen(file_key);
     }
-    scanner->total_response_time = millis() - scanner->total_response_time;
-    log_info("ID: %u - Scan finish, %u processed files in %ld ms", scanner->id, scanner->scanned_files, scanner->total_response_time);
+    s->total_response_time = millis() - s->total_response_time;
+    log_info("ID: %u - Scan finish, %u processed files in %ld ms", s->id, s->scanned_files, s->total_response_time);
     
-    free(wfp_path);  
-    json_correct(output);
-    scanner->state = SCANNER_STATE_OK;
+    free(s->wfp_path);  
+    json_correct(s);
+    s->state = SCANNER_STATE_OK;
     return state;
 
 }
 
 /* Scan all files from a Directory*/
-static bool scanner_dir_proc(char *path, FILE *output)
+static bool scanner_dir_proc(scanner_status_t *s, char *path)
 {
 
     bool state = true; //true if were a error
@@ -445,13 +427,12 @@ static bool scanner_dir_proc(char *path, FILE *output)
                 log_trace("Excluded Directory: %s", entry->d_name);
                 continue;
             }
-            scanner_dir_proc(temp, output); //If its a valid directory, then process it
+            scanner_dir_proc(s, temp); //If its a valid directory, then process it
         }
         else if (scanner_is_file(temp))
         {
-            if (!scanner_file_proc(temp, output))
+            if (!scanner_file_proc(s ,temp))
             {
-                proc_files++;
                 log_trace("Scan: %s", temp);
             }
             state = false;
@@ -463,24 +444,24 @@ static bool scanner_dir_proc(char *path, FILE *output)
 }
 
 
-static int curl_request(int api_req, char* data, FILE *output)
+static int curl_request(int api_req, char* data, scanner_status_t *s)
 {
     char *m_host;
     char *user_version;
     char *user_session;
     char *context;
 
-    long m_port = strtol(API_port, NULL, 10);
+    long m_port = strtol(s->API_port, NULL, 10);
     
-    asprintf(&user_session, "X-session: %s", API_session);
+    asprintf(&user_session, "X-session: %s", s->API_session);
     asprintf(&user_version, "User-Agent: SCANOSS_scanner.c/%s", VERSION);
     asprintf(&context,"context: %s", component_last);
     
     if (api_req == API_REQ_POST)
-        asprintf(&m_host, "%s/scan/direct", API_host);
+        asprintf(&m_host, "%s/scan/direct", s->API_host);
 
     else
-        asprintf(&m_host,"%s/file_contents/%s",API_host,data);
+        asprintf(&m_host,"%s/file_contents/%s",s->API_host,data);
     
     CURL *curl;
     CURLcode res;
@@ -503,11 +484,8 @@ static int curl_request(int api_req, char* data, FILE *output)
         curl_easy_setopt(curl, CURLOPT_URL, m_host);
         curl_easy_setopt(curl, CURLOPT_PORT, m_port);
        
-        if (api_req == API_REQ_POST)
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, output);
-        else
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, output);
-
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, s->output);
+     
         if (log_level_is_enabled(LOG_TRACE))
             curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 
@@ -530,7 +508,7 @@ static int curl_request(int api_req, char* data, FILE *output)
             mime = curl_mime_init(curl);
             part = curl_mime_addpart(mime);
             curl_mime_name(part, "format");
-            curl_mime_data(part, format, CURL_ZERO_TERMINATED);
+            curl_mime_data(part, s->format, CURL_ZERO_TERMINATED);
             part = curl_mime_addpart(mime);
             curl_mime_name(part, "file");
             curl_mime_filename(part, "scan.wfp");
@@ -564,36 +542,36 @@ static int curl_request(int api_req, char* data, FILE *output)
 }
 /********* PUBLIC FUNTIONS DEFINITION ************/
 
-void scanner_set_format(char *form)
+void scanner_set_format(scanner_status_t *s, char *form)
 {
     if (strstr(form, "plain") || strstr(form, "spdx") || strstr(form, "cyclonedx"))
     {
-        strncpy(format, form, sizeof(format));
-        log_debug(format);
+        strncpy(s->format, form, sizeof(s->format));
+        log_debug(s->format);
     }
     else
         log_info("%s is not a valid output format, using plain\n", form);
 }
 
-void scanner_set_host(char *host)
+void scanner_set_host(scanner_status_t *s, char *host)
 {
-    memset(API_host, '\0', sizeof(API_host));
-    strncpy(API_host, host, sizeof(API_host));
-    log_debug("Host set: %s", API_host);
+    memset(s->API_host, '\0', sizeof(s->API_host));
+    strncpy(s->API_host, host, sizeof(s->API_host));
+    log_debug("Host set: %s", s->API_host);
 }
 
-void scanner_set_port(char *port)
+void scanner_set_port(scanner_status_t *s, char *port)
 {
-    memset(API_port, '\0', sizeof(API_port));
-    strncpy(API_port, port, sizeof(API_port));
-    log_debug("Port set: %s", API_port);
+    memset(s->API_port, '\0', sizeof(s->API_port));
+    strncpy(s->API_port, port, sizeof(s->API_port));
+    log_debug("Port set: %s", s->API_port);
 }
 
-void scanner_set_session(char *session)
+void scanner_set_session(scanner_status_t *s, char *session)
 {
-    memset(API_session, '\0', sizeof(API_session));
-    strncpy(API_session, session, sizeof(API_session));
-    log_debug("Session set: %s", API_session);
+    memset(s->API_session, '\0', sizeof(s->API_session));
+    strncpy(s->API_session, session, sizeof(s->API_session));
+    log_debug("Session set: %s", s->API_session);
 }
 
 void scanner_set_log_level(int level)
@@ -606,23 +584,22 @@ void scanner_set_log_file(char *log)
     log_set_file(log);
 }
 
-void scanner_set_output(char * f)
+void scanner_set_output(scanner_status_t * e, char * f)
 {
     if (!f)
     {
-       asprintf(&output_path,"%s", DEFAULT_RESULT_NAME); 
+       asprintf(&e->output_path,"%s", DEFAULT_RESULT_NAME); 
     }
     else
-        output_path = f;
+        e->output_path = f;
 
-    asprintf(&wfp_path,"%s.wfp",output_path);
-    output = fopen(output_path, "w+");
+    asprintf(&e->wfp_path,"%s.wfp",e->output_path);
+    e->output = fopen(e->output_path, "w+");
 }
 
-bool scanner_recursive_scan(char *path)
+bool scanner_recursive_scan(scanner_status_t * scanner, char *path)
 {
     bool state = true;
-    proc_files = 0;
     
     if (!scanner)
     {
@@ -639,17 +616,17 @@ bool scanner_recursive_scan(char *path)
 
     log_info("ID: %u - Scan start - WFP Calculation", scanner->id);
     //check if exist the output file
-    if (!output)
-        scanner_set_output(NULL);
+    if (!scanner->output)
+        scanner_set_output(scanner, NULL);
       
     /*create blank wfp file*/
-    log_debug(wfp_path);
-    FILE *wfp_f = fopen(wfp_path, "w+");
+    log_debug(scanner->wfp_path);
+    FILE *wfp_f = fopen(scanner->wfp_path, "w+");
     fclose(wfp_f);
 
     if (scanner_is_file(path))
     {
-        scanner_file_proc(path, output);
+        scanner_file_proc(scanner, path);
         state = false;
     }
     else if (scanner_is_dir(path))
@@ -658,7 +635,7 @@ bool scanner_recursive_scan(char *path)
         if (path_len > 1 && path[path_len - 1] == '/') //remove extra '/'
             path[path_len - 1] = '\0';
         
-        scanner_dir_proc(path, output);
+        scanner_dir_proc(scanner, path);
         state = false;
     }
     else
@@ -668,77 +645,73 @@ bool scanner_recursive_scan(char *path)
     }
     scanner->wfp_total_time = millis() - scanner->wfp_total_time;
     log_info("ID: %u - WFP calculation end, %u processed files in %ld ms", scanner->id, scanner->wfp_files, scanner->wfp_total_time);
-    scan_request_by_chunks();
+    scan_request_by_chunks(scanner);
 
-    if (output)
-        fclose(output);
+    if (scanner->output)
+        fclose(scanner->output);
 
     return state;
 }
 
-int scanner_scan(char *host, char *port, char *session, char *format, char *path, char *file, scanner_status_t * scanner_status)
+int scanner_scan(char *host, char *port, char *session, char *format, char *path, char *file, scanner_status_t * scanner)
 {
     if (!file)
     {
         log_fatal("Cannot start a scan without output file");
     }
     
-    scanner = scanner_status;
-    scanner_set_output(file);
+    scanner_set_output(scanner, file);
 
     log_debug("File open: %s", file);
 
-    scanner_set_host(host);
-    scanner_set_port(port);
-    scanner_set_session(session);
-    scanner_set_format(format);
-    scanner_recursive_scan(path);
+    scanner_set_host(scanner, host);
+    scanner_set_port(scanner, port);
+    scanner_set_session(scanner, session);
+    scanner_set_format(scanner, format);
+    
+    scanner_recursive_scan(scanner, path);
 
-    return scanner-> state;
+    return scanner->state;
 }
 
-int scanner_get_file_contents(char *host, char *port, char *session, char * hash, char *file)
+int scanner_get_file_contents(scanner_status_t *scanner, char *host, char *port, char *session, char * hash, char *file)
 {
     if (!file)
     {
         log_fatal("Cannot download contents without output file");
     }
    
-    output = fopen(file, "w+");
-
+    scanner->output = fopen(file, "w+");
+/*
     scanner_set_host(host);
     scanner_set_port(port);
-    scanner_set_session(session);
+    scanner_set_session(session);*/
 
-    int err_code = curl_request(API_REQ_GET,hash,output);
+    int err_code = curl_request(API_REQ_GET,hash,scanner);
 
-    fclose(output);
-    free(output_path);
+    fclose(scanner->output);
+   // free(output_path);
 
     return err_code;
 }
 
-scanner_status_t * scanner_get_status(void)
-{
-    return scanner;
-}
 
-bool scanner_umz(char * md5)
+bool scanner_umz(scanner_status_t *scanner, char * md5)
 {
-    if (output == NULL)
-        output = stdout;
+    if (scanner->output == NULL)
+        scanner->output = stdout;
 
-    return curl_request(API_REQ_GET,md5,output);
+    return curl_request(API_REQ_GET,md5,scanner);
 }
 
 
-int scanner_print_output(void)
+int scanner_print_output(scanner_status_t *scanner)
 {
     bool state = true;
-    if (!output_path)
+    if (scanner->output_path)
         return 1;
 
-    output = fopen(output_path, "r");
+    FILE * output = fopen(scanner->output_path, "r");
     char c;
     
     if (output) 
@@ -750,6 +723,6 @@ int scanner_print_output(void)
         state = false;
     }
     
-    free(output_path);
+    free(scanner->output_path);
     return state;   
 }

@@ -1,10 +1,10 @@
 CC=gcc
 # Enable all compiler warnings. 
-CCFLAGS+= -fPIC -g -Wall -Werror -std=gnu99 -I./inc -I./external/inc
+CCFLAGS+= -fPIC -g -Wall -Werror -std=gnu99 -I./inc -I./external/inc -pthread
 
 # Linker flags
 LDFLAGS+=-lpthread -lcrypto -lssl -lcurl -lm
-LIBFLAGS=-O -g -Wall -std=gnu99 -fPIC -c
+LIBFLAGS=-O -g -Wall -std=gnu99 -fPIC -c -lpthread
 
 VERSION=`./scanner -h 2>&1  | head -n 1 | cut -d"-" -f2`
 

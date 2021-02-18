@@ -31,11 +31,10 @@
 
 int main(int argc, char *argv[])
 {
-    int param = 0;
+ /*   int param = 0;
     char * output = NULL;
     bool print_output = true;
 
-    /* Command parser */
     while ((param = getopt (argc, argv, "F:H:p:f:o:l:hdt")) != -1)
         switch (param)
         {
@@ -87,7 +86,7 @@ int main(int argc, char *argv[])
     scanner_recursive_scan(path);
     
     if (print_output)
-        scanner_print_output();
+        scanner_print_output();*/
 	
     return EXIT_SUCCESS;
 }
