@@ -31,25 +31,29 @@
 
 int main(int argc, char *argv[])
 {
- /*   int param = 0;
-    char * output = NULL;
+    int param = 0;
     bool print_output = true;
+    char * file = NULL;
+    char format[20] = "plain";
+    char host[32] = API_HOST_DEFAULT;
+    char port[5] = API_PORT_DEFAULT;
+    char session[64] = API_SESSION_DEFAULT;
+    char path[512];
 
     while ((param = getopt (argc, argv, "F:H:p:f:o:l:hdt")) != -1)
         switch (param)
         {
             case 'H':
-                scanner_set_host(optarg);
+                strcpy(host,optarg);
                 break;
             case 'p':
-                scanner_set_port(optarg);
+                strcpy(port,optarg);
                 break;
             case 'f':
-                scanner_set_format(optarg);
+                strcpy(format,optarg);
                 break;
             case 'o':
-                asprintf(&output,"%s",optarg);
-                scanner_set_output(output);
+                asprintf(&file,"%s",optarg);
                 print_output = false;
                 break;
             case 'l':
@@ -81,12 +85,15 @@ int main(int argc, char *argv[])
         }
     
        
-    char *path = argv[optind];
-   
-    scanner_recursive_scan(path);
+    strcpy(path,argv[optind]);
+
+    scanner_status_t * scanner = scanner_create(host,port,session,format,path,file);
+    scanner_recursive_scan(scanner);
     
     if (print_output)
-        scanner_print_output();*/
+        scanner_print_output(scanner);
+
+    scanner_free(scanner);
 	
     return EXIT_SUCCESS;
 }

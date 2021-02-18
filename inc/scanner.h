@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#define VERSION "1.2.2"
+#define VERSION "1.2.3"
 #define MAX_HEADER_LEN 1024 * 1024 * 1024 * 10
 #define MAX_FILE_SIZE (1024 * 1024 * 4)
 #define MIN_FILE_SIZE 128
@@ -61,6 +61,7 @@ typedef struct scanner_status_t
     char API_session[33];
     char format[16];
     char component_last[MAX_COMPONENT_SIZE];
+    char * scan_path;
     char *output_path;
     char *wfp_path;
     FILE *output;
@@ -91,8 +92,9 @@ void scanner_set_session(scanner_status_t *s, char *session);
 void scanner_set_output(scanner_status_t *s, char * f);
 int scanner_print_output(scanner_status_t *scanner);
 void scanner_set_log_file(char *log);
-bool scanner_recursive_scan(scanner_status_t *scanner, char * path);
-bool scanner_umz(scanner_status_t *scanner, char * md5);
-int scanner_scan(char * host, char * port, char * session, char * format, char * path, char * file, scanner_status_t * scanner_status);
-int scanner_get_file_contents(scanner_status_t *scanner, char *host, char *port, char *session, char * hash, char *file);
+scanner_status_t * scanner_create(char * host, char * port, char * session, char * format, char * path, char * file);
+int scanner_recursive_scan(scanner_status_t *scanner);
+bool scanner_umz(char * md5);
+int scanner_get_file_contents(scanner_status_t *scanner, char * hash);
+void scanner_free(scanner_status_t * scanner);
 #endif
