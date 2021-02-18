@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
        
     strcpy(path,argv[optind]);
 
-    scanner_status_t * scanner = scanner_create(host,port,session,format,path,file);
+    scanner_status_t * scanner = scanner_create(0, host,port,session,format,path,file);
     scanner_recursive_scan(scanner);
     
     if (print_output)

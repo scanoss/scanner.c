@@ -92,7 +92,7 @@ void scanner_set_session(scanner_status_t *s, char *session);
 void scanner_set_output(scanner_status_t *s, char * f);
 int scanner_print_output(scanner_status_t *scanner);
 void scanner_set_log_file(char *log);
-scanner_status_t * scanner_create(char * host, char * port, char * session, char * format, char * path, char * file);
+scanner_status_t * scanner_create(unsigned int id, char * host, char * port, char * session, char * format, char * path, char * file);
 int scanner_recursive_scan(scanner_status_t *scanner);
 bool scanner_umz(char * md5);
 int scanner_get_file_contents(scanner_status_t *scanner, char * hash);

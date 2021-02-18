@@ -374,7 +374,7 @@ static bool scan_request_by_chunks(scanner_status_t *s)
             free(chunk_buffer);
             state = false;
             s->last_chunk_response_time = millis() - chunk_start_time; 
-            log_debug("Chunk proc. end, %u processed files in %ld ms", s->scanned_files,millis() - s->total_response_time);
+            log_debug("ID: %u - Chunk proc. end, %u processed files in %ld ms", s->id, s->scanned_files,millis() - s->total_response_time);
             fprintf(stderr,"\r             \r ID: %u - Processing: %u%%",s->id,((s->scanned_files*100/s->wfp_files)));  
         }
 
@@ -670,7 +670,7 @@ int scanner_get_file_contents(scanner_status_t *scanner, char * hash)
 
 bool scanner_umz(char * md5)
 {
-    scanner_status_t * scanner = scanner_create(NULL,NULL,NULL,NULL,NULL,NULL);
+    scanner_status_t * scanner = scanner_create(0,NULL,NULL,NULL,NULL,NULL,NULL);
 
     if (scanner->output == NULL)
         scanner->output = stdout;
@@ -703,10 +703,11 @@ int scanner_print_output(scanner_status_t *scanner)
     free(scanner->output_path);
     return state;   
 }
-scanner_status_t * scanner_create(char * host, char * port, char * session, char * format, char * path, char * file)
+scanner_status_t * scanner_create(unsigned int id, char * host, char * port, char * session, char * format, char * path, char * file)
 {
      scanner_status_t *scanner = calloc(1, sizeof(scanner_status_t));
      scanner_status_t init = __SCANNER_STATUS_INIT;
+     init.id = id;
      init.scan_path = path;
      init.output_path = file;
      //copy default config
