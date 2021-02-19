@@ -37,7 +37,6 @@
 #include "blacklist_ext.h"
 #include "winnowing.h"
 #include "log.h"
-#include <pthread.h>
 /*SCANNER PRIVATE PROPERTIES*/
 
 
