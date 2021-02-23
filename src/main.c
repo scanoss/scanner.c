@@ -31,7 +31,30 @@
 
 void scanner_evt(const scanner_status_t * p_scanner, scanner_evt_t evt)
 {
-    printf("Scanner EVT: %d\r\n", evt);
+ switch(evt)
+  {
+    case SCANNER_EVT_START:
+      break;
+    case SCANNER_EVT_WFP_CALC_IT:
+        fprintf(stderr,"\r             \rCalculating fingerprints: %u",p_scanner->wfp_files);      
+        break;
+    case SCANNER_EVT_WFP_CALC_END:
+        fprintf(stderr,"\n\r             \r%u Fingerprints collected in %lu ms\n",p_scanner->wfp_files, p_scanner->wfp_total_time);      
+        fprintf(stderr,"\r             \rScanning, please be patient...\n");
+        break;
+    case SCANNER_EVT_CHUNK_PROC:
+        fprintf(stderr,"\r             \rProcessing %u files: %u%%",p_scanner->wfp_files,((p_scanner->scanned_files*100/p_scanner->wfp_files)));
+        break;
+    case SCANNER_EVT_END:
+        fprintf(stderr,"\n\r             \rScan completed in: %lu ms\n",p_scanner->total_response_time);
+      break;
+    case SCANNER_EVT_ERROR_CURL:
+      break;
+    case SCANNER_EVT_ERROR:
+      break;
+    default:
+      break;
+  }
 }
 
 int main(int argc, char *argv[])

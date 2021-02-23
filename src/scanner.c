@@ -117,6 +117,7 @@ static void wfp_capture(scanner_object_t *scanner, char *path, char *wfp_buffer)
     sprintf(wfp_buffer + strlen(wfp_buffer), "file=%s,%lu,%s\n", hex_md5, length, path);
     free(hex_md5);
     scanner->status.wfp_files++; //update scanner proc. files
+    
 
     /* If it is not binary (chr(0) found), calculate snippet wfps */
     if (strlen(src) == length && length < MAX_FILE_SIZE)
@@ -143,9 +144,14 @@ static void wfp_capture(scanner_object_t *scanner, char *path, char *wfp_buffer)
                 sprintf(wfp_buffer + strlen(wfp_buffer), ",%08x", hashes[i]);
         }
         strcat(wfp_buffer, "\n");
-        fprintf(stderr,".");
         free(hashes);
         free(lines);
+        
+        if (scanner->callback && scanner->status.wfp_files % 10 == 0)
+        {
+            scanner->callback(&scanner->status,SCANNER_EVT_WFP_CALC_IT);
+        }  
+            
     }
     free(src);
 }
@@ -327,7 +333,7 @@ static bool scan_request_by_chunks(scanner_object_t *s)
         log_debug("Avoid chuck proc for %s format: %u",s->format,s->files_chunk_size);
     }
     s->status.state = SCANNER_STATE_ANALIZING;
-    log_info("ID: %s - Scanning, it could take some time, please be patient",s->status.id);
+    log_debug("ID: %s - Scanning, it could take some time, please be patient",s->status.id);
     //walk over wfp buffer search for file key
     s->status.total_response_time = millis();
     while(last_file - wfp_buffer < buffer_size)
@@ -341,12 +347,6 @@ static bool scan_request_by_chunks(scanner_object_t *s)
 
         if (files_count % s->files_chunk_size == 0|| (last_file == NULL))
         {
-            
-            if (s->callback)
-            {
-                s->callback(&s->status,SCANNER_EVT_CHUNK_PROC);
-            }  
-            
             if (last_file == NULL)
                 last_file = &wfp_buffer[buffer_size];
             //exact a new chunk from wfp file
@@ -380,13 +380,16 @@ static bool scan_request_by_chunks(scanner_object_t *s)
             state = false;
             s->status.last_chunk_response_time = millis() - chunk_start_time; 
             log_debug("ID: %s - Chunk proc. end, %u processed files in %ld ms", s->status.id, s->status.scanned_files,millis() - s->status.total_response_time);
-            fprintf(stderr,"\r             \r ID: %s - Processing: %u%%",s->status.id,((s->status.scanned_files*100/s->status.wfp_files)));
+            if (s->callback)
+            {
+                s->callback(&s->status,SCANNER_EVT_CHUNK_PROC);
+            } 
         }
 
         last_file += strlen(file_key);
     }
     s->status.total_response_time = millis() - s->status.total_response_time;
-    log_info("ID: %s - Scan finish, %u processed files in %ld ms", s->status.id, s->status.scanned_files, s->status.total_response_time);
+
     if (s->callback)
     {
         s->callback(&s->status,SCANNER_EVT_CHUNK_PROC_END);
@@ -478,7 +481,7 @@ static int curl_request(int api_req, char* data, scanner_object_t *s)
     /* Check for errors */
     if (res != CURLE_OK)
     {
-        fprintf(stderr, "curl_global_init() failed: %s\n",
+        log_fatal("curl_global_init() failed: %s\n",
                 curl_easy_strerror(res));
         return 1;
     }
@@ -565,7 +568,7 @@ void scanner_set_format(scanner_object_t *s, char *form)
         strncpy(s->format, form, sizeof(s->format));
     }
     else
-        log_info("%s is not a valid output format, using plain\n", form);
+        log_debug("%s is not a valid output format, using plain\n", form);
 }
 
 void scanner_set_host(scanner_object_t *s, char *host)
@@ -635,7 +638,7 @@ int scanner_recursive_scan(scanner_object_t * scanner)
     scanner->status.last_chunk_response_time = 0;
     scanner->status.total_response_time = 0;
 
-    log_info("ID: %s - Scan start - WFP Calculation", scanner->status.id);
+    log_debug("ID: %s - Scan start - WFP Calculation", scanner->status.id);
     if (scanner->callback)
     {
         scanner->callback(&scanner->status,SCANNER_EVT_START);
@@ -670,7 +673,7 @@ int scanner_recursive_scan(scanner_object_t * scanner)
         }
     }
     scanner->status.wfp_total_time = millis() - scanner->status.wfp_total_time;
-    log_info("ID: %s - WFP calculation end, %u processed files in %ld ms", scanner->status.id, scanner->status.wfp_files, scanner->status.wfp_total_time);
+    log_debug("ID: %s - WFP calculation end, %u processed files in %ld ms", scanner->status.id, scanner->status.wfp_files, scanner->status.wfp_total_time);
     if (scanner->callback)
     {
         scanner->callback(&scanner->status,SCANNER_EVT_WFP_CALC_END);
@@ -679,6 +682,11 @@ int scanner_recursive_scan(scanner_object_t * scanner)
 
     if (scanner->output)
         fclose(scanner->output);
+
+    if (scanner->callback)
+    {
+        scanner->callback(&scanner->status,SCANNER_EVT_END);
+    } 
 
     return scanner->status.state;
 }

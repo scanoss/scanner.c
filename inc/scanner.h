@@ -72,6 +72,7 @@ typedef struct scanner_status_t
 typedef enum
 {
     SCANNER_EVT_START = 0,
+    SCANNER_EVT_WFP_CALC_IT,
     SCANNER_EVT_WFP_CALC_END,
     SCANNER_EVT_CHUNK_PROC,
     SCANNER_EVT_CHUNK_PROC_END,
