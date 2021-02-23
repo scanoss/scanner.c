@@ -47,10 +47,10 @@ install_lib:$(LIB_NAME)
 	cp $(LIB_NAME) /usr/lib
 	mkdir -p /usr/include/scanner && cp inc/scanner.h /usr/include/scanoss
 clean_build:
-	rm -f src/*.o src/**/*.o external/src/*.o external/src/**/*.o    
+	rm -rf src/*.o src/**/*.o external/src/*.o external/src/**/*.o    
 
 clean: clean_build
-	rm -f $(BIN_NAME) $(LIB_NAME) *deb
+	rm -rf $(BIN_NAME) $(LIB_NAME) dist/
 
 distclean: clean
 
