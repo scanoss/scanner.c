@@ -29,6 +29,11 @@
 #include <sys/stat.h>
 #include "scanner.h"
 
+void scanner_evt(const scanner_status_t * p_scanner, scanner_evt_t evt)
+{
+    printf("Scanner EVT: %d\r\n", evt);
+}
+
 int main(int argc, char *argv[])
 {
     int param = 0;
@@ -86,14 +91,15 @@ int main(int argc, char *argv[])
     
        
     strcpy(path,argv[optind]);
-
-    scanner_status_t * scanner = scanner_create(0, host,port,session,format,path,file);
+    char id[MAX_ID_LEN];
+    sprintf(id,"scanoss CLI,%u", rand());
+    scanner_object_t * scanner = scanner_create(id, host,port,session,format,path,file, scanner_evt);
     scanner_recursive_scan(scanner);
     
     if (print_output)
         scanner_print_output(scanner);
 
-    scanner_free(scanner);
+    scanner_object_free(scanner);
 	
     return EXIT_SUCCESS;
 }
