@@ -11,9 +11,11 @@ addons:
 
   apt:
     - libcurl4-openssl-dev
+    - jq
 
 compiler:
   - gcc
 
 script:
   - make
+  - ./test.sh
