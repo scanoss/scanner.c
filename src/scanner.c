@@ -45,15 +45,24 @@
 #define DEFAULT_WFP_SCAN_FILE_NAME "scan.wfp"
 #define DEFAULT_RESULT_NAME "scanner_output.txt"
 
-const char EXCLUDED_DIR[] = ".git, .svn, .eggs, __pycache__, node_modules, vendor,";
-const char EXCLUDED_EXTENSIONS[] = ".png, .html, .xml, .svg, .yaml, .yml, .txt, .json, .gif, .md,"
-                                   ".test, .cfg, .pdf, .properties, .jpg, .vim, .sql, .result, .template,"
-                                   ".tiff, .bmp, .DS_Store, .eot, .otf, .ttf, .woff, .rgb, .conf, .whl, .o, .ico, .wfp,";
+const char EXCLUDED_DIR[] = ".git, .svn, .eggs, __pycache__, node_modules,";
+const char EXCLUDED_EXTENSIONS[] = ".1, .2, .3, .4, .5, .6, .7, .8, .9, .ac, .adoc, .am,"
+	                                ".asciidoc, .bmp, .build, .cfg, .chm, .class, .cmake, .cnf,"
+	                                ".conf, .config, .contributors, .copying, .crt, .csproj, .css,"
+	                                ".csv, .cvsignore, .dat, .data, .doc, .ds_store, .dtd, .dts,"
+	                                ".dtsi, .dump, .eot, .eps, .geojson, .gdoc, .gif, .gitignore,"
+	                                ".glif, .gmo, .gradle, .guess, .hex, .htm, .html, .ico, .in,"
+                                    ".inc, .info, .ini, .ipynb, .jpeg, .jpg, .json, .jsonld,"
+                                    ".log, .m4, .map, .markdown, .md, .md5, .meta, .mk, .mxml,"
+                                    ".o, .otf, .out, .pbtxt, .pdf, .pem, .phtml, .plist, .png,"
+                                    ".po, .ppt, .prefs, .properties, .pyc, .qdoc, .result, .rgb,"
+                                    ".rst, .scss, .sha, .sha1, .sha2, .sha256, .sln, .spec, .sql,"
+                                    ".sub, .svg, .svn-base, .tab, .template, .test, .tex, .tiff,"
+                                    ".toml, .ttf, .txt, .utf-8, .vim, .wav, .whl, .woff, .xht,"
+                                    ".xhtml, .xls, .xml, .xpm, .xsd, .xul, .yaml, .yml,";
 
 
 static int curl_request(int api_req, char* data,scanner_object_t *s);
-
-static char component_last[MAX_COMPONENT_SIZE] = "NULL";
 
 /* Returns a hexadecimal representation of the first "len" bytes in "bin" */
 static char *bin_to_hex(uint8_t *bin, uint32_t len)
@@ -308,7 +317,7 @@ void json_correct(scanner_object_t *s)
 
 static bool scan_request_by_chunks(scanner_object_t *s)
 {
-#define START_FIND_COMP_FROM_END 1000
+#define START_FIND_COMP_FROM_END 2000
 
     const char file_key[] = "file=";
     bool state = true;
@@ -369,9 +378,9 @@ static bool scan_request_by_chunks(scanner_object_t *s)
             }
             //go back in the output file and find the last component
             fread(post_response_buffer,1,START_FIND_COMP_FROM_END,s->output);
-            get_last_component(post_response_buffer,component_last);
+            get_last_component(post_response_buffer,s->status.component_last);
 
-            log_trace("Last found component: %s", component_last);
+            log_debug("Last found component: %s", s->status.component_last);
             
             fseek(s->output,0L,SEEK_END);
             //get the result from the last chunk - It will be append to the output file
@@ -460,13 +469,13 @@ static int curl_request(int api_req, char* data, scanner_object_t *s)
     char *m_host;
     char *user_version;
     char *user_session;
-    char *context;
+    //char *context;
 
     long m_port = strtol(s->API_port, NULL, 10);
     
     asprintf(&user_session, "X-session: %s", s->API_session);
     asprintf(&user_version, "User-Agent: SCANOSS_scanner.c/%s", VERSION);
-    asprintf(&context,"context: %s", component_last);
+    //asprintf(&context,"context: %s", scanner->status.component_last);
     
     if (api_req == API_REQ_POST)
         asprintf(&m_host, "%s/scan/direct", s->API_host);
@@ -505,7 +514,7 @@ static int curl_request(int api_req, char* data, scanner_object_t *s)
         chunk = curl_slist_append(chunk, "Connection: close");
         chunk = curl_slist_append(chunk, user_version);
         chunk = curl_slist_append(chunk, user_session);
-        chunk = curl_slist_append(chunk, context);
+        //chunk = curl_slist_append(chunk, context);
         chunk = curl_slist_append(chunk, "Expect:");
         chunk = curl_slist_append(chunk, "Accept: */*");
 
@@ -516,15 +525,21 @@ static int curl_request(int api_req, char* data, scanner_object_t *s)
             curl_mime *mime;
             curl_mimepart *part;
             mime = curl_mime_init(curl);
+            
             part = curl_mime_addpart(mime);
             curl_mime_name(part, "format");
             curl_mime_data(part, s->format, CURL_ZERO_TERMINATED);
+
+            part = curl_mime_addpart(mime);
+            curl_mime_name(part, "context");
+            curl_mime_data(part, s->status.component_last, CURL_ZERO_TERMINATED);
+            
             part = curl_mime_addpart(mime);
             curl_mime_name(part, "file");
             curl_mime_filename(part, "scan.wfp");
             curl_mime_type(part,"application/octet-stream");
-
             curl_mime_data(part, data, CURL_ZERO_TERMINATED);
+
             curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
         }
     
@@ -551,7 +566,7 @@ static int curl_request(int api_req, char* data, scanner_object_t *s)
     free(m_host);
     free(user_session);
     free(user_version);
-    free(context);
+   // free(context);
 
     return 0;
 

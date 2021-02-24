@@ -112,17 +112,21 @@ int main(int argc, char *argv[])
             break;
         }
     
-       
-    strcpy(path,argv[optind]);
-    char id[MAX_ID_LEN];
-    sprintf(id,"scanoss CLI,%u", rand());
-    scanner_object_t * scanner = scanner_create(id, host,port,session,format,path,file, scanner_evt);
-    scanner_recursive_scan(scanner);
+    if(argv[optind]) 
+    {
+        strcpy(path,argv[optind]);
+        char id[MAX_ID_LEN];
+        sprintf(id,"scanoss CLI,%u", rand());
+        scanner_object_t * scanner = scanner_create(id, host,port,session,format,path,file, scanner_evt);
+        scanner_recursive_scan(scanner);
     
-    if (print_output)
-        scanner_print_output(scanner);
+        if (print_output)
+            scanner_print_output(scanner);
 
-    scanner_object_free(scanner);
-	
-    return EXIT_SUCCESS;
+        scanner_object_free(scanner);
+        return EXIT_SUCCESS;
+    }
+    fprintf(stderr, "Missing parameter, run with -h for help\n");
+    return EXIT_FAILURE;
+
 }
