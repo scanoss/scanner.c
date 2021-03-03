@@ -156,7 +156,7 @@ static void wfp_capture(scanner_object_t *scanner, char *path, char *wfp_buffer)
         free(hashes);
         free(lines);
         
-        if (scanner->callback && scanner->status.wfp_files % 10 == 0)
+        if (scanner->callback && scanner->status.wfp_files % 100 == 0)
         {
             scanner->callback(&scanner->status,SCANNER_EVT_WFP_CALC_IT);
         }  
@@ -254,17 +254,10 @@ static bool get_last_component(char * buffer, char * component)
     return state;
 }
 
-void json_correct(scanner_object_t *s)
+void json_correct(char * target)
 {
-    size_t file_length = 0;
-    
-    fseek(s->output, 0, SEEK_END);
-    file_length = ftell(s->output);
-    char * target = calloc(file_length + 1, 1);
-    
-    fseek(s->output, 0, SEEK_SET);
-    fread(target, 1, file_length, s->output);
-    
+    size_t file_length = strlen(target);
+     
     char buffer[file_length];
     char *insert_point = &buffer[0];
     const char *tmp = target;
@@ -272,16 +265,9 @@ void json_correct(scanner_object_t *s)
     char * needle;
     char * replacement;
 
-   if (strstr(s->format,"plain")) //|| strstr(format,"cyclonedx"))
-    {
-        asprintf(&needle,"}\n\r\n{");
-        asprintf(&replacement,",");
-    }
-    else
-        return;
+    asprintf(&needle,"}\n\r\n{");
+    asprintf(&replacement,"\n\r,\r\n");
 
-    s->status.state = SCANNER_STATE_FORMATING;
-    
     size_t needle_len = strlen(needle);
     size_t repl_len = strlen(replacement);   
 
@@ -306,18 +292,16 @@ void json_correct(scanner_object_t *s)
         // adjust pointers, move on
         tmp = p + needle_len;
     }
-    fclose(s->output);
-    s->output=fopen(s->output_path,"w+");
-    fputs(buffer,s->output);
-
-    free(target);
+    memset(target,0,file_length);
+    strcpy(target,buffer);
     free(needle);
     free(replacement);
 }
 
+
 static bool scan_request_by_chunks(scanner_object_t *s)
 {
-#define START_FIND_COMP_FROM_END 2000
+#define START_FIND_COMP_FROM_END 36864
 
     const char file_key[] = "file=";
     bool state = true;
@@ -334,7 +318,7 @@ static bool scan_request_by_chunks(scanner_object_t *s)
     char post_response_buffer[START_FIND_COMP_FROM_END+1];
     int post_response_pos = 0;
     long chunk_start_time = 0;
-
+    fpos_t file_pos;
     /*Patch for json join of no-plain formats*/
     if(!strstr(s->format,"plain"))
     {
@@ -376,19 +360,40 @@ static bool scan_request_by_chunks(scanner_object_t *s)
             {
                 fseek(s->output,-1*START_FIND_COMP_FROM_END,SEEK_END);
             }
+            
             //go back in the output file and find the last component
             fread(post_response_buffer,1,START_FIND_COMP_FROM_END,s->output);
             get_last_component(post_response_buffer,s->status.component_last);
-
+            
             log_debug("Last found component: %s", s->status.component_last);
             
             fseek(s->output,0L,SEEK_END);
+        
             //get the result from the last chunk - It will be append to the output file
+            fgetpos(s->output, &file_pos);
             curl_request(API_REQ_POST,chunk_buffer,s);
+
+            //correct json errors due to chunk proc.
+            if (s->status.scanned_files > s->files_chunk_size)
+            {
+               // fsetpos(s->output,&file_pos);
+                int offset = post_response_pos-ftell(s->output)-128;
+                fseek(s->output,offset,SEEK_END);
+                memset(post_response_buffer,0,strlen(post_response_buffer));
+                fread(post_response_buffer,1,156,s->output);
+                
+                json_correct(post_response_buffer);
+                
+                fseek(s->output,offset,SEEK_END);
+                fwrite(post_response_buffer,1,strlen(post_response_buffer),s->output);
+                fseek(s->output,0L,SEEK_END);
+            }
+
             free(chunk_buffer);
             state = false;
             s->status.last_chunk_response_time = millis() - chunk_start_time; 
             log_debug("ID: %s - Chunk proc. end, %u processed files in %ld ms", s->status.id, s->status.scanned_files,millis() - s->status.total_response_time);
+            sprintf(s->status.message, "CHUNK_PROC_%lu_ms", s->status.last_chunk_response_time);
             if (s->callback)
             {
                 s->callback(&s->status,SCANNER_EVT_CHUNK_PROC);
@@ -403,8 +408,8 @@ static bool scan_request_by_chunks(scanner_object_t *s)
     {
         s->callback(&s->status,SCANNER_EVT_CHUNK_PROC_END);
     }
+    
     free(s->wfp_path);  
-    json_correct(s);
     s->status.state = SCANNER_STATE_OK;
     return state;
 
@@ -652,7 +657,7 @@ int scanner_recursive_scan(scanner_object_t * scanner)
     scanner->status.wfp_total_time = millis();    
     scanner->status.last_chunk_response_time = 0;
     scanner->status.total_response_time = 0;
-
+    strcpy(scanner->status.message, "WFP_CALC_START\0");
     log_debug("ID: %s - Scan start - WFP Calculation", scanner->status.id);
     if (scanner->callback)
     {
@@ -692,7 +697,9 @@ int scanner_recursive_scan(scanner_object_t * scanner)
     if (scanner->callback)
     {
         scanner->callback(&scanner->status,SCANNER_EVT_WFP_CALC_END);
-    } 
+    }
+
+    strcpy(scanner->status.message, "WFP_CALC_END\0"); 
     scan_request_by_chunks(scanner);
 
     if (scanner->output)
@@ -701,7 +708,8 @@ int scanner_recursive_scan(scanner_object_t * scanner)
     if (scanner->callback)
     {
         scanner->callback(&scanner->status,SCANNER_EVT_END);
-    } 
+    }
+    strcpy(scanner->status.message, "FINISHED\0");
 
     return scanner->status.state;
 }
@@ -765,7 +773,7 @@ scanner_object_t * scanner_create(char * id, char * host, char * port, char * se
     scanner_set_port(scanner, port);
     scanner_set_session(scanner, session);
     scanner_set_format(scanner, format);
-
+    strcpy(scanner->status.message, "SCANNER_CREATED\0");
     return scanner;
 }
 
